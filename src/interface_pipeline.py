@@ -48,6 +48,8 @@ ts_data = ts_data[ts_data["hour_ts"].between(fetch_data_from, fetch_data_to)]
 
 # Sort and Reset
 ts_data = ts_data.sort_values(["start_station_id", "hour_ts"]).reset_index(drop=True)
+print("Columns in ts_data:", ts_data.columns.tolist())
+
 
 print(f"✅ Timeseries data shape after filtering: {ts_data.shape}")
 
