@@ -1,9 +1,9 @@
-name: taxi_rides_hourly_features_pipeline
+name: citibike_hourly_features_pipeline
 
 on:
   schedule:
-    - cron: '2 * * * *' # Runs every hour
-  workflow_dispatch: # Allows manual triggering of the workflow
+    - cron: '2 * * * *'  # ⏰ Run every hour (2 minutes after each hour)
+  workflow_dispatch:    # 🚀 Allow manual run from GitHub UI
 
 jobs:
   run-python-script:
@@ -16,14 +16,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # Specify the Python version
+          python-version: '3.11'  # ✅ Use Python 3.11
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements_feature_pipeline.txt # Install dependencies if a requirements file exists
+          pip install -r requirements_feature_pipeline.txt  # ✅ You have this file already
 
-      - name: Run new data fetch pipeline and load to hopsworks
+      - name: Run Citi Bike feature pipeline and load to Hopsworks
         env:
-          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY}}
-        run: python -m src.feature_pipeline
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        run: |
+          python -m src.interface_pipeline

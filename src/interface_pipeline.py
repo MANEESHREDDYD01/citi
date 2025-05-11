@@ -1,92 +1,99 @@
-# src/interface_pipeline.py (FOR CITI BIKE PROJECT)
+# ============================
+# 🚴 Citi Bike Interface Pipeline (FINAL)
+# ============================
 
-from datetime import datetime, timedelta
+# 📦 Imports
 import pandas as pd
+import pytz
+from datetime import datetime
 
 import src.config as config
 from src.citi_interface import (
+    get_hopsworks_project,
     get_feature_store,
-    get_model_predictions,
-    load_model_from_local,  # ⬅️ your Citi models are local
+    load_model_from_local,
 )
-from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets_all_months
+from src.utils import to_new_york  # ✅ you already had this
+from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets
 
-# ==============================
-# 📅 Set Time Range to Fetch Data
-# ==============================
+# ============================
+# 📂 Connect to Hopsworks
+# ============================
+print("🔌 Connecting to Hopsworks...")
+project = get_hopsworks_project()
+fs = get_feature_store()
 
-# Get current UTC time
-current_date = pd.Timestamp.now(tz="Etc/UTC")
+# ============================
+# 📅 Define Time Range
+# ============================
+current_time_utc = pd.Timestamp.now(tz="UTC")
 
-# Fetch data from last 28 days
-fetch_data_to = current_date - timedelta(hours=1)
-fetch_data_from = current_date - timedelta(days=28)
+print(f"📅 Fetching Citi Bike data from 2025-01-01 to {current_time_utc}...")
 
-print(f"📅 Fetching Citi Bike data from {fetch_data_from} to {fetch_data_to}...")
+# ============================
+# 🛒 Fetch Raw Feature Group Data
+# ============================
+try:
+    fg = fs.get_feature_group(name="citibike_hourly_data_v2", version=1)
+    query = fg.select_all()
+    ts_data = query.read()
+except Exception as e:
+    print(f"❌ Failed to fetch Feature Group data: {e}")
+    exit(1)
 
-# Connect to Hopsworks Feature Store
-feature_store = get_feature_store()
+print(f"✅ Timeseries data shape after fetching: {ts_data.shape}")
 
-# Read time-series data from Feature View
-feature_view = feature_store.get_feature_view(
-    name=config.FEATURE_VIEW_NAME,
-    version=config.FEATURE_VIEW_VERSION
-)
+if ts_data.shape[0] == 0:
+    print("⚠️ No Citi Bike data available in Feature Group. Exiting gracefully.")
+    exit(0)
 
-ts_data = feature_view.get_batch_data(
-    start_time=(fetch_data_from - timedelta(days=1)),
-    end_time=(fetch_data_to + timedelta(days=1)),
-)
+# ============================
+# 🛠 Transform into Features
+# ============================
+features_targets = transform_ts_data_into_features_and_targets(ts_data)
 
-# Filter strictly within the desired window
-ts_data = ts_data[ts_data.hour_ts.between(fetch_data_from, fetch_data_to)]
-ts_data = ts_data.sort_values(["start_station_id", "hour_ts"]).reset_index(drop=True)
+if features_targets is None:
+    print("⚠️ No features generated. Exiting gracefully...")
+    exit(0)
 
-# No need to tz_localize — already handled earlier if needed
+features, _ = features_targets
 
-print(f"✅ Time series data shape after filtering: {ts_data.shape}")
+print(f"✅ Feature shape for prediction: {features.shape}")
 
-# ==============================
-# ✨ Transform Data into Features
-# ==============================
-
-# (If you have a real transform_ts_data_info_features function, use it)
-# For now directly use Citi function
-features, _ = transform_ts_data_into_features_and_targets_all_months()
-
-print(f"✅ Features created: {features.shape}")
-
-# ==============================
-# 🚀 Load Model
-# ==============================
-
+# ============================
+# 🤖 Load Model
+# ============================
 model = load_model_from_local()
-print("✅ Loaded model from local storage.")
+print("✅ Model loaded successfully.")
 
-# ==============================
-# 🔮 Predict
-# ==============================
+# ============================
+# 🔮 Predict Ride Counts
+# ============================
+X = features.drop(columns=["hour_ts"], errors="ignore")
 
-predictions = get_model_predictions(model, features)
+print(f"✅ Final feature shape for prediction: {X.shape}")
 
-# Assign prediction timestamp
-predictions["hour_ts"] = current_date.ceil("h")
-print(f"✅ Predictions completed. Shape: {predictions.shape}")
+predictions = model.predict(X)
 
-print(predictions.head())
+# ============================
+# 🛠 Build Prediction Results
+# ============================
+results = pd.DataFrame()
+results["start_station_id"] = features["start_station_id"].values
 
-# ==============================
-# 💾 Save Predictions to Feature Store
-# ==============================
+# Convert UTC hour_ts to EST
+est = pytz.timezone('America/New_York')
+results["hour_ts_est"] = pd.to_datetime(features["hour_ts"]).dt.tz_convert(est)
 
-feature_group = feature_store.get_or_create_feature_group(
-    name=config.FEATURE_GROUP_MODEL_PREDICTION,
-    version=1,
-    description="Predictions from Citi Bike LGBM Model",
-    primary_key=["start_station_id", "hour_ts"],
-    event_time="hour_ts",
-)
+results["predicted_ride_count"] = predictions
 
-feature_group.insert(predictions, write_options={"wait_for_job": False})
+print(f"✅ Predictions completed. Shape: {results.shape}")
 
-print("✅ Predictions inserted into Feature Store successfully!")
+# ============================
+# 🏆 Display Top 10 Predictions
+# ============================
+top_predictions = results.sort_values(by="predicted_ride_count", ascending=False).head(10)
+print("\n🏆 Top 10 Stations by Predicted Demand:")
+print(top_predictions)
+
+# (Optional: Save back to Feature Group or storage if needed)

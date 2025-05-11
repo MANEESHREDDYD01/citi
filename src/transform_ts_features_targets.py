@@ -4,6 +4,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
+# ==========================================
+# 1️⃣ Save monthly parquet feature datasets
+# ==========================================
 def transform_ts_data_into_features_and_targets_all_months(
     input_dir="../data/processed/timeseries", 
     output_dir="../data/processed/feature_eng_all_id"
@@ -70,6 +73,49 @@ def transform_ts_data_into_features_and_targets_all_months(
 
         print(f"✅ Saved monthly feature dataset at: {final_save_path}")
 
-# Run the function
+# ==========================================
+# 2️⃣ In-memory feature creation for inference
+# ==========================================
+def transform_ts_data_into_features_and_targets(ts_data):
+    """
+    Create features and targets dynamically from given CitiBike timeseries data.
+
+    Used for inference pipelines (interface_pipeline.py).
+    """
+
+    if ts_data.empty:
+        print("⚠️ No data provided for feature creation. Returning None.")
+        return None, None
+
+    # Copy
+    ts_data = ts_data.copy()
+
+    # Create manual temporal features
+    ts_data["hour"] = ts_data["hour_ts"].dt.hour
+    ts_data["day_of_week"] = ts_data["hour_ts"].dt.dayofweek
+    ts_data["month"] = ts_data["hour_ts"].dt.month
+
+    # Rolling feature
+    ts_data["ride_count_roll3"] = ts_data["ride_count"].shift(1).rolling(3, min_periods=1).mean()
+
+    # Target feature (8 hours ahead ride_count)
+    ts_data["target_ride_count"] = ts_data["ride_count"].shift(-8)
+
+    # Drop rows with missing features/target
+    ts_data = ts_data.dropna(subset=["ride_count_roll3", "target_ride_count"])
+
+    # Final feature columns
+    feature_columns = [
+        "start_station_id", "hour", "day_of_week", "month", "ride_count_roll3"
+    ]
+
+    features = ts_data[feature_columns]
+    targets = ts_data["target_ride_count"]
+
+    return features, targets
+
+# ==========================================
+# 3️⃣ Main Execution
+# ==========================================
 if __name__ == "__main__":
     transform_ts_data_into_features_and_targets_all_months()
