@@ -1,6 +1,9 @@
 # src/model_training_pipeline.py
 
+import os
 import joblib
+from datetime import datetime, timedelta
+import pandas as pd
 from hsml.schema import Schema
 from hsml.model_schema import ModelSchema
 from sklearn.metrics import mean_absolute_error
@@ -22,31 +25,19 @@ from src.transform_ts_features_targets import transform_ts_data_into_features_an
 
 print("📦 Fetching Citi Bike data from feature store...")
 
-# Connect to Hopsworks
-feature_store = get_feature_store()
-
-feature_view = feature_store.get_feature_view(
-    name=config.FEATURE_VIEW_NAME,
-    version=config.FEATURE_VIEW_VERSION,
-)
-
-ts_data = feature_view.get_batch_data()
-from src.citi_interface import get_feature_store
-import src.config as config
-
 # Connect to Feature Store
 feature_store = get_feature_store()
 
-# Load your Feature View
+# Load Feature View
 feature_view = feature_store.get_feature_view(
     name=config.FEATURE_VIEW_NAME,
     version=config.FEATURE_VIEW_VERSION
 )
 
-# Fetch a small batch (1 day) to inspect schema
-import pandas as pd
-from datetime import datetime, timedelta
+# Fetch full batch data for training
+ts_data = feature_view.get_batch_data()
 
+# (Optional) Fetch small batch to inspect schema
 start_time = pd.Timestamp.now(tz="UTC") - timedelta(days=1)
 end_time = pd.Timestamp.now(tz="UTC")
 
@@ -120,8 +111,9 @@ if test_mae < metrics.get("test_mae", float("inf")):
     model_name = config.MODEL_NAME
 
     # Save model locally
-    model_path = config.MODELS_DIR / f"{model_name}.pkl"
-    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model_dir = "models"
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, f"{model_name}.pkl")
     joblib.dump(pipeline, model_path)
 
     # Define input/output schema
@@ -129,10 +121,10 @@ if test_mae < metrics.get("test_mae", float("inf")):
     output_schema = Schema(targets)
     model_schema = ModelSchema(input_schema=input_schema, output_schema=output_schema)
 
+    # Register model in Hopsworks
     project = get_hopsworks_project()
     model_registry = project.get_model_registry()
 
-    # Register model in Hopsworks
     model = model_registry.sklearn.create_model(
         name=model_name,
         metrics={"test_mae": test_mae},
@@ -140,7 +132,7 @@ if test_mae < metrics.get("test_mae", float("inf")):
         model_schema=model_schema,
         description="Citi Bike Demand Prediction Model"
     )
-    model.save(str(model_path))
+    model.save(model_path)
 
     print(f"✅ Model registered successfully!")
 
