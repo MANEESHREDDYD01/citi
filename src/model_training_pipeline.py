@@ -10,8 +10,7 @@ from src.transform_ts_features_targets import transform_ts_data_into_features_an
 from src.citi_interface import (
     fetch_days_data,
     get_hopsworks_project,
-    load_metrics_from_registry,
-    load_model_from_local,
+    load_metrics_from_registry
 )
 from src.pipeline_util import get_pipeline
 
