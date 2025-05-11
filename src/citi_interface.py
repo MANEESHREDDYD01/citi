@@ -9,7 +9,6 @@ import joblib
 from pathlib import Path
 
 import src.config as config
-from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets_all_months
 
 # ===============================
 # ✨ Basic Utilities
@@ -41,28 +40,28 @@ def load_model_from_local():
     model = joblib.load(model_path)
     return model
 
-def save_model_to_registry(model, model_name, metrics=None):
+def save_model_to_registry(model_name: str, metrics: dict = None):
     """
-    Save trained model to Hopsworks Model Registry.
+    Upload the trained model to Hopsworks Model Registry.
+    Assumes model file already saved locally as {model_name}.pkl
     """
     project = get_hopsworks_project()
     model_registry = project.get_model_registry()
 
-    # Save locally first
-    save_path = Path(f"{model_name}.pkl")
-    joblib.dump(model, save_path)
+    model_path = Path(f"{model_name}.pkl")
+    if not model_path.exists():
+        raise FileNotFoundError(f"❌ Cannot find model file {model_path} to upload!")
 
-    # Upload to registry
     model_registry.upload_model(
-        str(save_path),
+        str(model_path),
         model_name=model_name,
         metrics=metrics if metrics else {},
         description="Trained model uploaded from GitHub Actions",
         overwrite=True,
     )
-    print(f"✅ Model '{model_name}' saved successfully to registry.")
+    print(f"✅ Model '{model_name}' uploaded successfully to registry.")
 
-def save_metrics_to_registry(model_name, metrics):
+def save_metrics_to_registry(model_name: str, metrics: dict):
     """
     Save evaluation metrics to Hopsworks Model Registry.
     """
@@ -78,7 +77,7 @@ def save_metrics_to_registry(model_name, metrics):
 
 def load_batch_of_features_from_store(current_date: datetime) -> pd.DataFrame:
     """
-    Fetch batch features for prediction from Feature Store.
+    Fetch latest batch features for prediction from Feature Store.
     """
     feature_store = get_feature_store()
 
@@ -100,12 +99,8 @@ def load_batch_of_features_from_store(current_date: datetime) -> pd.DataFrame:
     ts_data = ts_data[ts_data["hour_ts"].between(fetch_data_from, fetch_data_to)]
     ts_data.sort_values(["start_station_id", "hour_ts"], inplace=True)
 
-    features = transform_ts_data_into_features_and_targets_all_months(
-        ts_data, window_size=24*28, step_size=23
-    )
-
-    print(f"✅ Loaded {features.shape[0]} samples for batch prediction features.")
-    return features
+    print(f"✅ Loaded {ts_data.shape[0]} samples for batch prediction.")
+    return ts_data
 
 def fetch_days_data(days: int) -> pd.DataFrame:
     """
@@ -126,7 +121,7 @@ def fetch_days_data(days: int) -> pd.DataFrame:
     return df[cond]
 
 # ===============================
-# ✨ Fetch Past Predictions (optional for dashboard)
+# ✨ Fetch Past Predictions (for dashboard or monitoring)
 # ===============================
 
 def fetch_next_hour_predictions():
@@ -180,6 +175,27 @@ def assert_model_trained_for_8_hours():
         print(f"✅ Confirmed model is trained for {target_gap}-hour prediction.")
     except Exception as e:
         print(f"⚠️ Could not verify model training gap: {e}")
+
+def load_metrics_from_registry() -> dict:
+    """
+    Load the previous best model's metrics from Hopsworks Model Registry.
+    If no model is found, return a very high MAE by default.
+    """
+    try:
+        project = get_hopsworks_project()
+        model_registry = project.get_model_registry()
+        models = model_registry.get_models(name=config.MODEL_NAME)
+
+        if not models:
+            print("⚠️ No previous model found. Returning default high MAE.")
+            return {"test_mae": float("inf")}
+
+        latest_model = max(models, key=lambda model: model.version)
+        return latest_model.metrics
+
+    except Exception as e:
+        print(f"⚠️ Error loading metrics from registry: {e}")
+        return {"test_mae": float("inf")}
 
 # ===============================
 # MAIN
