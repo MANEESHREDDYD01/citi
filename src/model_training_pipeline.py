@@ -9,8 +9,13 @@ import src.config as config
 from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets_all_months
 from src.citi_interface import (
     get_feature_store,
-    load_model_from_local
+    load_model_from_local,
+    save_model_to_registry,
+    save_metrics_to_registry
 )
+
+# Connect to Hopsworks
+feature_store = get_feature_store()
 from src.pipeline_util import get_pipeline
 
 # ==============================
