@@ -17,7 +17,8 @@ from src.transform_ts_features_targets import transform_ts_data_into_features_an
 
 def get_hopsworks_project() -> hopsworks.project.Project:
     return hopsworks.login(
-        project=config.HOPSWORKS_PROJECT_NAME, api_key_value=config.HOPSWORKS_API_KEY
+        project=config.HOPSWORKS_PROJECT_NAME,
+        api_key_value=config.HOPSWORKS_API_KEY
     )
 
 def get_feature_store() -> FeatureStore:
@@ -25,12 +26,12 @@ def get_feature_store() -> FeatureStore:
     return project.get_feature_store()
 
 # ===============================
-# ✨ Model Loading & Prediction
+# ✨ Model Loading & Saving
 # ===============================
 
 def load_model_from_local():
     """
-    Load a pre-trained model from the models/ directory inside GitHub repo.
+    Load a pre-trained model from the models/ directory inside the repo.
     """
     model_path = Path(__file__).parent.parent / "models" / "lgbmhyper.pkl"
     
@@ -40,48 +41,92 @@ def load_model_from_local():
     model = joblib.load(model_path)
     return model
 
-def get_model_predictions(model, features: pd.DataFrame) -> pd.DataFrame:
-    predictions = model.predict(features)
+def save_model_to_registry(model, model_name, metrics=None):
+    """
+    Save trained model to Hopsworks Model Registry.
+    """
+    project = get_hopsworks_project()
+    model_registry = project.get_model_registry()
 
-    results = pd.DataFrame()
-    results["start_station_id"] = features["start_station_id"].values
-    results["predicted_ride_count"] = predictions.round(0)
+    # Save locally first
+    save_path = Path(f"{model_name}.pkl")
+    joblib.dump(model, save_path)
 
-    return results
+    # Upload to registry
+    model_registry.upload_model(
+        str(save_path),
+        model_name=model_name,
+        metrics=metrics if metrics else {},
+        description="Trained model uploaded from GitHub Actions",
+        overwrite=True,
+    )
+    print(f"✅ Model '{model_name}' saved successfully to registry.")
+
+def save_metrics_to_registry(model_name, metrics):
+    """
+    Save evaluation metrics to Hopsworks Model Registry.
+    """
+    project = get_hopsworks_project()
+    model_registry = project.get_model_registry()
+    model = model_registry.get_model(model_name, version=None)
+    model.save_metrics(metrics)
+    print(f"✅ Metrics for model '{model_name}' saved to registry.")
 
 # ===============================
 # ✨ Feature Fetching
 # ===============================
 
 def load_batch_of_features_from_store(current_date: datetime) -> pd.DataFrame:
-    """Fetch CitiBike feature batch for prediction"""
+    """
+    Fetch batch features for prediction from Feature Store.
+    """
     feature_store = get_feature_store()
 
     fetch_data_to = current_date - timedelta(hours=1)
     fetch_data_from = current_date - timedelta(days=29)
+
     print(f"Fetching CitiBike data from {fetch_data_from} to {fetch_data_to}")
 
     feature_view = feature_store.get_feature_view(
-        name=config.FEATURE_VIEW_NAME, version=config.FEATURE_VIEW_VERSION
+        name=config.FEATURE_VIEW_NAME,
+        version=config.FEATURE_VIEW_VERSION
     )
 
     ts_data = feature_view.get_batch_data(
         start_time=(fetch_data_from - timedelta(days=1)),
-        end_time=(fetch_data_to + timedelta(days=1)),
+        end_time=(fetch_data_to + timedelta(days=1))
     )
 
     ts_data = ts_data[ts_data["hour_ts"].between(fetch_data_from, fetch_data_to)]
-    ts_data.sort_values(by=["start_station_id", "hour_ts"], inplace=True)
+    ts_data.sort_values(["start_station_id", "hour_ts"], inplace=True)
 
-    features = transform_ts_data_info_features(
-        ts_data, window_size=24 * 28, step_size=23
+    features = transform_ts_data_into_features_and_targets_all_months(
+        ts_data, window_size=24*28, step_size=23
     )
 
-    print(f"✅ Loaded {features.shape[0]} samples for batch features")
+    print(f"✅ Loaded {features.shape[0]} samples for batch prediction features.")
     return features
 
+def fetch_days_data(days: int) -> pd.DataFrame:
+    """
+    Fetch historical Citi Bike data for model training.
+    """
+    current_date = pd.to_datetime(datetime.now(timezone.utc))
+    fetch_data_from = current_date - timedelta(days=(365 + days))
+    fetch_data_to = current_date - timedelta(days=365)
+
+    print(f"Fetching CitiBike ride data from {fetch_data_from} to {fetch_data_to}")
+
+    fs = get_feature_store()
+    fg = fs.get_feature_group(name=config.FEATURE_GROUP_NAME, version=1)
+
+    df = fg.select_all().read()
+    cond = (df["hour_ts"] >= fetch_data_from) & (df["hour_ts"] <= fetch_data_to)
+
+    return df[cond]
+
 # ===============================
-# ✨ Fetch Past Predictions
+# ✨ Fetch Past Predictions (optional for dashboard)
 # ===============================
 
 def fetch_next_hour_predictions():
@@ -119,27 +164,11 @@ def fetch_hourly_rides(hours: int) -> pd.DataFrame:
 
     return query.read()
 
-def fetch_days_data(days: int) -> pd.DataFrame:
-    current_date = pd.to_datetime(datetime.now(timezone.utc))
-    fetch_data_from = current_date - timedelta(days=(365 + days))
-    fetch_data_to = current_date - timedelta(days=365)
-
-    print(f"Fetching CitiBike ride data from {fetch_data_from} to {fetch_data_to}")
-
-    fs = get_feature_store()
-    fg = fs.get_feature_group(name=config.FEATURE_GROUP_NAME, version=1)
-
-    df = fg.select_all().read()
-    cond = (df["hour_ts"] >= fetch_data_from) & (df["hour_ts"] <= fetch_data_to)
-
-    return df[cond]
-
 # ===============================
-# ✨ Optional: Safety Check
+# ✨ Model Check
 # ===============================
 
 def assert_model_trained_for_8_hours():
-    # Only if your training_metrics have 'target_gap_hours'
     try:
         project = get_hopsworks_project()
         model_registry = project.get_model_registry()
