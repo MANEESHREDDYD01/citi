@@ -8,9 +8,8 @@ from sklearn.metrics import mean_absolute_error
 import src.config as config
 from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets_all_months
 from src.citi_interface import (
-    fetch_days_data,
-    get_hopsworks_project,
-    load_metrics_from_registry
+    get_feature_store,
+    load_model_from_local
 )
 from src.pipeline_util import get_pipeline
 
