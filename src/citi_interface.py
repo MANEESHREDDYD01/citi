@@ -28,14 +28,16 @@ def get_feature_store() -> FeatureStore:
 # ✨ Model Loading & Prediction
 # ===============================
 
-def load_model_from_local() -> object:
-    """Load LGBM model from local pickle file"""
-    model_path = Path("C:/Users/MD/Desktop/citi/models/lgbmhyper.pkl")
+def load_model_from_local():
+    """
+    Load a pre-trained model from the models/ directory inside GitHub repo.
+    """
+    model_path = Path(__file__).parent.parent / "models" / "lgbmhyper.pkl"
+    
     if not model_path.exists():
         raise FileNotFoundError(f"❌ Model file not found at {model_path}")
     
     model = joblib.load(model_path)
-    print(f"✅ Loaded model from {model_path}")
     return model
 
 def get_model_predictions(model, features: pd.DataFrame) -> pd.DataFrame:
