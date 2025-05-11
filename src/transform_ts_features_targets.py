@@ -1,86 +1,74 @@
-# 04_transform_ts_data_into_features_and_targets_all_months_with_id_with_name.py
+# src/transform_ts_features_targets.py (UPDATED FINAL)
 
 import pandas as pd
-import numpy as np
 from pathlib import Path
 
 # ==========================================
-# 1️⃣ Save monthly parquet feature datasets
+# 1️⃣ Load FINAL full-year processed data
 # ==========================================
+
 def transform_ts_data_into_features_and_targets_all_months(
-    input_dir="../data/processed/timeseries", 
-    output_dir="../data/processed/feature_eng_all_id"
+    input_dir="../data/processed/final_features"
 ):
+    """
+    Load the processed CitiBike full-year datasets (2024 + 2025),
+    and return combined features and targets for model training.
+
+    Parameters:
+    -----------
+    input_dir : str
+        Directory where final feature files are stored.
+
+    Returns:
+    --------
+    features : pd.DataFrame
+        DataFrame containing input features for model training.
+    targets : pd.Series
+        Series containing target values (ride_count 8 hours ahead).
+    """
+
     input_path = Path(input_dir)
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
 
-    # List all months to process separately
-    months = [
-        (2024, 1), (2024, 2), (2024, 3), (2024, 4),
-        (2024, 5), (2024, 6), (2024, 7), (2024, 8),
-        (2024, 9), (2024, 10), (2024, 11), (2024, 12),
-        (2025, 1), (2025, 2), (2025, 3)
-    ]
+    path_2024 = input_path / "rides_citibike_final_2024_with_lags.parquet"
+    path_2025 = input_path / "rides_citibike_final_2025_with_lags.parquet"
 
-    for year, month in months:
-        file_path = input_path / f"rides_{year}_{month:02}.parquet"
+    if not path_2024.exists() or not path_2025.exists():
+        print("❌ One or both final feature files are missing!")
+        return None, None
 
-        if not file_path.exists():
-            print(f"⚠️ Skipping {year}-{month:02} (File not found)")
-            continue
+    print(f"🔵 Loading {path_2024}")
+    df_2024 = pd.read_parquet(path_2024)
 
-        print(f"\n🔵 Loading file: {file_path}")
-        df = pd.read_parquet(file_path)
+    print(f"🔵 Loading {path_2025}")
+    df_2025 = pd.read_parquet(path_2025)
 
-        # ✅ Focus only on top 5 busiest stations for this month
-        top_station_ids = (
-            df.groupby("start_station_id")["ride_count"]
-            .sum()
-            .sort_values(ascending=False)
-            .head(5)
-            .index.tolist()
-        )
+    # Combine both years
+    df = pd.concat([df_2024, df_2025], axis=0, ignore_index=True)
+    print(f"✅ Combined data shape: {df.shape}")
 
-        # Find corresponding station names
-        id_to_name = df[df["start_station_id"].isin(top_station_ids)].groupby("start_station_id")["start_station_name"].first()
+    # Check if target exists
+    target_col = "target_ride_count"
+    if target_col not in df.columns:
+        print(f"❌ Target column '{target_col}' not found!")
+        return None, None
 
-        print("✅ Using top 5 stations for", f"{year}-{month:02}:")
-        for station_id in top_station_ids:
-            station_name = id_to_name.get(station_id, "Unknown")
-            print(f"ID: {station_id} → Station Name: {station_name}")
+    # Separate features and target
+    features = df.drop(columns=[target_col])
+    targets = df[target_col]
 
-        # Filter only top stations
-        df = df[df["start_station_id"].isin(top_station_ids)].copy()
+    print(f"✅ Features shape: {features.shape}, Targets shape: {targets.shape}")
 
-        # Sort by time
-        df = df.sort_values("hour_ts").reset_index(drop=True)
-
-        # 3-hour rolling mean (shifted globally)
-        df["ride_count_roll3"] = df["ride_count"].shift(1).rolling(3, min_periods=1).mean()
-
-        # Target variable (8 hours ahead ride_count)
-        df["target_ride_count"] = df["ride_count"].shift(-8)
-
-        # Drop missing rows (caused by rolling and shifting)
-        df = df.dropna(subset=["ride_count_roll3", "target_ride_count"])
-
-        print(f"✅ Final shape for {year}-{month:02}: {df.shape}")
-
-        # Save final dataset for this month
-        final_save_path = output_path / f"citibike_features_targets_8hours_{year}_{month:02}.parquet"
-        df.to_parquet(final_save_path, index=False)
-
-        print(f"✅ Saved monthly feature dataset at: {final_save_path}")
+    return features, targets
 
 # ==========================================
-# 2️⃣ In-memory feature creation for inference
+# 2️⃣ In-memory feature creation for prediction
 # ==========================================
+
 def transform_ts_data_into_features_and_targets(ts_data):
     """
     Create features and targets dynamically from given CitiBike timeseries data.
 
-    Used for inference pipelines (interface_pipeline.py).
+    Used for inference pipelines (e.g., interface_pipeline.py).
     """
 
     if ts_data.empty:
@@ -115,7 +103,8 @@ def transform_ts_data_into_features_and_targets(ts_data):
     return features, targets
 
 # ==========================================
-# 3️⃣ Main Execution
+# 3️⃣ Main Execution for Manual Testing
 # ==========================================
+
 if __name__ == "__main__":
     transform_ts_data_into_features_and_targets_all_months()
