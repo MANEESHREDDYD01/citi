@@ -4,39 +4,45 @@ import joblib
 from hsml.model_schema import ModelSchema
 from hsml.schema import Schema
 from sklearn.metrics import mean_absolute_error
+import pandas as pd
+from pathlib import Path
 
 import src.config as config
-from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets_all_months
 from src.citi_interface import (
     get_feature_store,
     load_model_from_local,
     save_model_to_registry,
-    save_metrics_to_registry
+    save_metrics_to_registry,
+    get_hopsworks_project,
+    load_metrics_from_registry
 )
-
-# Connect to Hopsworks
-feature_store = get_feature_store()
 from src.pipeline_util import get_pipeline
 
 # ==============================
-# 📅 Step 1: Fetch Citi Bike Data
+# 📅 Step 1: Load Final Citi Bike Data
 # ==============================
 
-print("📦 Fetching Citi Bike data from feature store...")
-feature_view = feature_store.get_feature_view(
-    name=config.FEATURE_VIEW_NAME,
-    version=config.FEATURE_VIEW_VERSION
-)
+print("📦 Loading final processed Citi Bike feature data...")
 
-ts_data = feature_view.get_batch_data()
+# Final feature files
+final_features_path = Path("C:/Users/MD/Desktop/citi/data/processed/final_features")
+
+df_2024 = pd.read_parquet(final_features_path / "rides_citibike_final_2024_with_lags.parquet")
+df_2025 = pd.read_parquet(final_features_path / "rides_citibike_final_2025_with_lags.parquet")
+
+# Combine
+df = pd.concat([df_2024, df_2025], axis=0).reset_index(drop=True)
+
+print(f"✅ Combined dataset shape: {df.shape}")
 
 # ==============================
-# 🔄 Step 2: Transform into Features and Targets
+# 🧹 Step 2: Prepare Features and Targets
 # ==============================
 
-print("🔄 Transforming timeseries data into features and targets...")
+non_feature_cols = ["hour_ts", "start_station_name", "time_of_day", "start_station_id"]
 
-features, targets = transform_ts_data_into_features_and_targets_all_months()
+features = df.drop(columns=non_feature_cols + ["target_ride_count"], errors="ignore")
+targets = df["target_ride_count"]
 
 print(f"✅ Features shape: {features.shape}, Targets shape: {targets.shape}")
 
