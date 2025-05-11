@@ -2,8 +2,8 @@ name: citibike_hourly_features_pipeline
 
 on:
   schedule:
-    - cron: '2 * * * *'  # ⏰ Run every hour (2 minutes after each hour)
-  workflow_dispatch:    # 🚀 Allow manual run from GitHub UI
+    - cron: '2 * * * *'  # ⏰ Run every hour (2 minutes after the hour)
+  workflow_dispatch:    # 🚀 Allow manual trigger from GitHub UI
 
 jobs:
   run-python-script:
@@ -16,12 +16,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'  # ✅ Use Python 3.11
+          python-version: '3.11'  # ✅ Using Python 3.11
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements_feature_pipeline.txt  # ✅ You have this file already
+          pip install -r requirements_feature_pipeline.txt
+          pip install lightgbm  # 🔥 Add this manually to avoid ModuleNotFoundError
 
       - name: Run Citi Bike feature pipeline and load to Hopsworks
         env:
