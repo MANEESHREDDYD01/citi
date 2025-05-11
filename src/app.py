@@ -59,7 +59,7 @@ body {
 .scroll-reveal {
     opacity: 0;
     transform: translateY(50px);
-    transition: opacity 0.8s ease, transform 0.8s ease;
+    transition: opacity 1.2s ease-out, transform 1.2s ease-out;
 }
 .scroll-reveal.revealed {
     opacity: 1;
@@ -83,7 +83,7 @@ body {
     z-index: 10000;
 }
 
-/* Bounce Animation */
+/* Bounce Animation for Cursor */
 @keyframes bounce {
     from { transform: translateY(0px); }
     to { transform: translateY(-10px); }
@@ -101,19 +101,37 @@ body {
     background: none;
 }
 
+/* Loader Bikes */
 .bike {
     font-size: 40px;
     animation: moveBike 4s infinite alternate;
 }
-
 .bike.left {
     animation-direction: alternate-reverse;
 }
 
+/* Loader Bike Movement */
 @keyframes moveBike {
     0% { transform: translateX(0px) scale(1); }
     50% { transform: translateX(60px) scale(1.5); }
     100% { transform: translateX(0px) scale(1); }
+}
+
+/* Spinner for Loading */
+.spinner {
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border-left-color: #09f;
+    animation: spin 1s linear infinite;
+    position: absolute;
+    top: 60%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 </style>
 
@@ -124,13 +142,14 @@ body {
   <div class="bike">🚲</div>
   <div class="bike left">🚲</div>
   <div class="bike">🚲</div>
+  <div class="spinner"></div>
 </div>
 
 <!-- Bike Cursor -->
 <div class="bike-cursor" id="bikeCursor"></div>
 
 <script>
-// Hide loader after loading
+// Remove loader after page load
 window.addEventListener('load', () => {
     setTimeout(() => {
         const loader = document.getElementById('loader');
@@ -140,14 +159,14 @@ window.addEventListener('load', () => {
     }, 1500);
 });
 
-// Move bike cursor with mouse
+// Move custom bike cursor
 document.addEventListener('mousemove', function(e) {
     const cursor = document.getElementById('bikeCursor');
     cursor.style.left = e.pageX + 'px';
     cursor.style.top = e.pageY + 'px';
 });
 
-// Scroll reveal animations
+// Scroll Reveal Animation
 const revealElements = () => {
     const elements = document.querySelectorAll('.scroll-reveal');
     const windowHeight = window.innerHeight;
@@ -158,13 +177,12 @@ const revealElements = () => {
         }
     });
 };
-
 window.addEventListener('scroll', revealElements);
 window.addEventListener('load', revealElements);
 </script>
 """
 
-# Inject all the customizations
+# Inject custom CSS and JS
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # =============================
@@ -223,6 +241,7 @@ with st.container():
         get_color="[0, 128, 255, 180]",
         get_radius=400,
         pickable=True,
+        auto_highlight=True,  # highlight when hover
     )
     view_state = pdk.ViewState(latitude=40.75, longitude=-73.97, zoom=11)
     r = pdk.Deck(layers=[layer], initial_view_state=view_state,
