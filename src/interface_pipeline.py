@@ -1,99 +1,159 @@
-# ============================
-# 🚴 Citi Bike Interface Pipeline (FINAL)
-# ============================
-
-# 📦 Imports
+# 📂 Imports and Setup
+import sys
+import os
+from datetime import datetime, timedelta
 import pandas as pd
 import pytz
-from datetime import datetime
 
+# Add parent directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..")))
+
+# 🛠 Project imports
 import src.config as config
 from src.citi_interface import (
-    get_hopsworks_project,
     get_feature_store,
-    load_model_from_local,
+    load_model_from_local
 )
-from src.utils import to_new_york  # ✅ you already had this
-from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets
 
-# ============================
-# 📂 Connect to Hopsworks
-# ============================
+# ==============================
+# 🔑 Hopsworks Connection
+# ==============================
+
 print("🔌 Connecting to Hopsworks...")
-project = get_hopsworks_project()
-fs = get_feature_store()
+feature_store = get_feature_store()
 
-# ============================
-# 📅 Define Time Range
-# ============================
-current_time_utc = pd.Timestamp.now(tz="UTC")
+# ==============================
+# 🚲 Fetch Citi Bike Data
+# ==============================
 
-print(f"📅 Fetching Citi Bike data from 2025-01-01 to {current_time_utc}...")
+fetch_data_from = pd.Timestamp("2025-01-01 00:00:00", tz="Etc/UTC")
+fetch_data_to = pd.Timestamp("2025-03-31 23:59:59", tz="Etc/UTC")
 
-# ============================
-# 🛒 Fetch Raw Feature Group Data
-# ============================
-try:
-    fg = fs.get_feature_group(name="citibike_hourly_data_v2", version=1)
-    query = fg.select_all()
-    ts_data = query.read()
-except Exception as e:
-    print(f"❌ Failed to fetch Feature Group data: {e}")
-    exit(1)
+print(f"📅 Fetching Citi Bike data from {fetch_data_from} to {fetch_data_to}...")
 
-print(f"✅ Timeseries data shape after fetching: {ts_data.shape}")
+feature_view = feature_store.get_feature_view(
+    name=config.FEATURE_VIEW_NAME,
+    version=config.FEATURE_VIEW_VERSION
+)
 
-if ts_data.shape[0] == 0:
-    print("⚠️ No Citi Bike data available in Feature Group. Exiting gracefully.")
-    exit(0)
+# Fetch batch data
+ts_data = feature_view.get_batch_data(
+    start_time=(fetch_data_from - timedelta(days=1)),
+    end_time=(fetch_data_to + timedelta(days=1)),
+)
 
-# ============================
-# 🛠 Transform into Features
-# ============================
-features_targets = transform_ts_data_into_features_and_targets(ts_data)
+# Filter exact range
+ts_data = ts_data[ts_data["hour_ts"].between(fetch_data_from, fetch_data_to)]
 
-if features_targets is None:
-    print("⚠️ No features generated. Exiting gracefully...")
-    exit(0)
+# Sort and Reset
+ts_data = ts_data.sort_values(["start_station_id", "hour_ts"]).reset_index(drop=True)
 
-features, _ = features_targets
+print(f"✅ Timeseries data shape after filtering: {ts_data.shape}")
 
-print(f"✅ Feature shape for prediction: {features.shape}")
+if ts_data.empty:
+    print("⚠️ No Citi Bike data available in Feature View for the selected period. Exiting.")
+    sys.exit(0)
 
-# ============================
-# 🤖 Load Model
-# ============================
+# ==============================
+# ⚙️ Create Manual Features Here
+# ==============================
+
+print("🛠 Creating manual features...")
+
+# Add manual time-based features
+ts_data["hour"] = ts_data["hour_ts"].dt.hour
+ts_data["hour_sin"] = np.sin(2 * np.pi * ts_data["hour"] / 24)
+ts_data["hour_cos"] = np.cos(2 * np.pi * ts_data["hour"] / 24)
+ts_data["day_of_week"] = ts_data["hour_ts"].dt.dayofweek
+ts_data["month"] = ts_data["hour_ts"].dt.month
+ts_data["day_of_year"] = ts_data["hour_ts"].dt.dayofyear
+
+# Add holiday/weekend feature
+from pandas.tseries.holiday import USFederalHolidayCalendar
+
+calendar = USFederalHolidayCalendar()
+holidays = calendar.holidays(start=ts_data["hour_ts"].min(), end=ts_data["hour_ts"].max())
+ts_data["is_holiday_or_weekend"] = ts_data["hour_ts"].dt.normalize().isin(holidays) | ts_data["hour_ts"].dt.dayofweek.isin([5, 6])
+
+# Identify peak hours (7-9 AM and 4-7 PM typical)
+ts_data["is_peak_hour"] = ts_data["hour"].isin([7,8,9,16,17,18,19])
+
+# Rolling mean (3-hour)
+ts_data["ride_count_roll3"] = ts_data["ride_count"].shift(1).rolling(3, min_periods=1).mean()
+
+# Target: 8-hour ahead prediction
+ts_data["target_ride_count"] = ts_data["ride_count"].shift(-8)
+
+# ==============================
+# ➡️ Generate Lag Features
+# ==============================
+
+print("🛠 Generating lag features...")
+
+for lag in range(1, 679):
+    ts_data[f"ride_count_lag_{lag}"] = ts_data["ride_count"].shift(lag)
+
+# Drop rows with missing lag features
+ts_data = ts_data.dropna().reset_index(drop=True)
+
+print(f"✅ Final dataset shape after feature engineering: {ts_data.shape}")
+
+# ==============================
+# 📦 Load Model
+# ==============================
+
+print("📦 Loading trained model...")
 model = load_model_from_local()
 print("✅ Model loaded successfully.")
 
-# ============================
-# 🔮 Predict Ride Counts
-# ============================
-X = features.drop(columns=["hour_ts"], errors="ignore")
+# ==============================
+# 📈 Prepare Features
+# ==============================
 
-print(f"✅ Final feature shape for prediction: {X.shape}")
+print("🛠 Preparing feature matrix X...")
 
+non_feature_cols = ["hour_ts", "start_station_name", "time_of_day"]  # remove non-feature cols
+
+trained_features = [
+    "hour", "hour_sin", "hour_cos", "day_of_week", "is_holiday_or_weekend",
+    "month", "is_peak_hour", "day_of_year", "ride_count_roll3"
+] + [f"ride_count_lag_{i}" for i in range(1, 679)] + ["target_ride_count"]
+
+X = ts_data.drop(columns=non_feature_cols, errors="ignore")
+
+for col in trained_features:
+    if col not in X.columns:
+        print(f"⚠️ Missing column {col}. Filling with 0.")
+        X[col] = 0
+
+X = X[trained_features]
+
+print(f"✅ Final feature matrix shape: {X.shape}")
+
+# ==============================
+# 🔮 Predict
+# ==============================
+
+print("🔮 Predicting ride counts...")
 predictions = model.predict(X)
 
-# ============================
-# 🛠 Build Prediction Results
-# ============================
+# ==============================
+# 📊 Build Prediction Results
+# ==============================
+
 results = pd.DataFrame()
-results["start_station_id"] = features["start_station_id"].values
-
-# Convert UTC hour_ts to EST
-est = pytz.timezone('America/New_York')
-results["hour_ts_est"] = pd.to_datetime(features["hour_ts"]).dt.tz_convert(est)
-
+results["start_station_id"] = ts_data["start_station_id"].values
+results["hour_ts_est"] = pd.to_datetime(ts_data["hour_ts"]).dt.tz_convert('America/New_York')
 results["predicted_ride_count"] = predictions
 
-print(f"✅ Predictions completed. Shape: {results.shape}")
+print(f"✅ Predictions completed. Results shape: {results.shape}")
 
-# ============================
-# 🏆 Display Top 10 Predictions
-# ============================
-top_predictions = results.sort_values(by="predicted_ride_count", ascending=False).head(10)
-print("\n🏆 Top 10 Stations by Predicted Demand:")
-print(top_predictions)
+# ==============================
+# 🏆 Show Top Stations
+# ==============================
 
-# (Optional: Save back to Feature Group or storage if needed)
+top_5_locations = results.sort_values("predicted_ride_count", ascending=False).head(5)
+
+print("\n🏆 Top 5 Stations by Predicted Demand:")
+print(top_5_locations[["start_station_id", "hour_ts_est", "predicted_ride_count"]])
+
