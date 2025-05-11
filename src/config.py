@@ -9,3 +9,4 @@ FEATURE_VIEW_NAME = "citibike_hourly_feature_view_v2"
 FEATURE_GROUP_VERSION = 1
 MODEL_NAME = "citibike_lgbm_model_v2"
 FEATURE_VIEW_VERSION = 1
+MODELS_DIR = Path("models")
