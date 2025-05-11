@@ -8,7 +8,7 @@ matplotlib
 mlflow
 notebook
 numpy>=1.25
-pandas
+pandas>=2.2.2,<3.0
 plotly
 pyarrow
 python-dotenv
