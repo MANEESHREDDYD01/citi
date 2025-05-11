@@ -1,20 +1,25 @@
 # src/model_training_pipeline.py
 
 import joblib
-from hsml.schema import Schema
 from hsml.model_schema import ModelSchema
+from hsml.schema import Schema
 from sklearn.metrics import mean_absolute_error
 
 import src.config as config
 from src.citi_interface import (
+    get_hopsworks_project,
     get_feature_store,
-    load_model_from_local,
-    save_model_to_registry,
-    save_metrics_to_registry,
     load_metrics_from_registry,
-    get_hopsworks_project
+    save_model_to_registry,
+    save_metrics_to_registry
 )
 from src.pipeline_util import get_pipeline
+
+# ==============================
+# ✨ Connect to Hopsworks
+# ==============================
+
+feature_store = get_feature_store()
 
 # ==============================
 # 📦 Step 1: Fetch Citi Bike Data
@@ -22,13 +27,11 @@ from src.pipeline_util import get_pipeline
 
 print("📦 Fetching Citi Bike data from feature store...")
 
-feature_store = get_feature_store()
 feature_view = feature_store.get_feature_view(
     name=config.FEATURE_VIEW_NAME,
     version=config.FEATURE_VIEW_VERSION
 )
 
-# Load full timeseries dataset (already processed and feature engineered)
 ts_data = feature_view.get_batch_data()
 
 # ==============================
@@ -37,19 +40,20 @@ ts_data = feature_view.get_batch_data()
 
 print("🔄 Preparing features and targets for training...")
 
-# Drop unnecessary columns
-drop_cols = ["hour_ts", "start_station_name", "time_of_day"]
+# Only drop truly unnecessary columns (KEEP 'hour_ts')
+drop_cols = ["start_station_name", "time_of_day"]
 X = ts_data.drop(columns=drop_cols, errors="ignore")
 
-# Features = everything except the final label
+# Features: everything except the target
 features = X.drop(columns=["target_ride_count"], errors="ignore")
-# Targets = the label we want to predict
+
+# Target: label for training
 targets = X["target_ride_count"]
 
 print(f"✅ Features shape: {features.shape}, Targets shape: {targets.shape}")
 
 # ==============================
-# 🚀 Step 3: Train New Model Pipeline
+# 🚀 Step 3: Train New Pipeline
 # ==============================
 
 print("🚀 Training new Citi Bike model pipeline...")
@@ -72,12 +76,17 @@ pipeline.fit(features, targets)
 # 🔮 Step 4: Predict and Evaluate
 # ==============================
 
+print("🔍 Evaluating model...")
+
 predictions = pipeline.predict(features)
+
+# Compute MAE
 test_mae = mean_absolute_error(targets, predictions)
+metrics = {"test_mae": test_mae}
 
 print(f"📈 New model MAE: {test_mae:.4f}")
 
-# Load previous best model metrics
+# Load Previous Metrics
 previous_metrics = load_metrics_from_registry()
 print(f"📉 Previous best MAE: {previous_metrics['test_mae']:.4f}")
 
@@ -88,32 +97,15 @@ print(f"📉 Previous best MAE: {previous_metrics['test_mae']:.4f}")
 if test_mae < previous_metrics.get("test_mae", float("inf")):
     print(f"🏆 New model is better! Proceeding to register the model...")
 
-    # Save the model locally
-    model_save_path = config.MODELS_DIR / "lgbm_citibike_model.pkl"
-    joblib.dump(pipeline, model_save_path)
+    model_name = config.MODEL_NAME
 
-    # Prepare input/output schema
-    input_schema = Schema(features)
-    output_schema = Schema(targets)
-    model_schema = ModelSchema(input_schema=input_schema, output_schema=output_schema)
+    # Save and register
+    save_model_to_registry(pipeline, model_name=model_name, metrics=metrics)
 
-    # Register model to Hopsworks
-    project = get_hopsworks_project()
-    model_registry = project.get_model_registry()
+    # Update metrics
+    save_metrics_to_registry(model_name=model_name, metrics=metrics)
 
-    model = model_registry.sklearn.create_model(
-        name=config.MODEL_NAME,
-        metrics={"test_mae": test_mae},
-        input_example=features.sample(),
-        model_schema=model_schema,
-    )
-    model.save(str(model_save_path))
-
-    # Save updated metrics
-    save_metrics_to_registry(model_name=config.MODEL_NAME, metrics={"test_mae": test_mae})
-
-    print(f"✅ Model registered successfully in Hopsworks Model Registry!")
-
+    print(f"✅ Model registered successfully!")
 else:
     print(f"⚠️ Skipping model registration because the new model is not better.")
 
