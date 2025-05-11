@@ -1,8 +1,12 @@
 # 📂 Imports and Setup
 import sys
 import os
+import numpy as np
+import pandas as pd
+import pytz
+from datetime import datetime, timedelta
 
-# Add parent directory to the Python path
+# Add parent directory to Python path
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..")))
 
 # 🛠 Project imports
@@ -12,23 +16,18 @@ from src.citi_interface import (
     load_model_from_local
 )
 
-from datetime import datetime, timedelta
-import pandas as pd
-import pytz
-import numpy as np  # ✅ Needed for sin/cos
-
 # ==============================
 # 🔑 Hopsworks Connection
 # ==============================
 
-# Connect to Feature Store
+print("🔌 Connecting to Hopsworks...")
+
 feature_store = get_feature_store()
 
 # ==============================
-# 🚲 Fetch Citi Bike Data (January to March 2025)
+# 🚲 Fetch Citi Bike Data
 # ==============================
 
-# Fixed Start and End
 fetch_data_from = pd.Timestamp("2025-01-01 00:00:00", tz="Etc/UTC")
 fetch_data_to = pd.Timestamp("2025-03-31 23:59:59", tz="Etc/UTC")
 
@@ -39,24 +38,32 @@ feature_view = feature_store.get_feature_view(
     version=config.FEATURE_VIEW_VERSION
 )
 
-# Fetch batch data
 ts_data = feature_view.get_batch_data(
     start_time=(fetch_data_from - timedelta(days=1)),
     end_time=(fetch_data_to + timedelta(days=1)),
 )
 
-# Filter exact range
 ts_data = ts_data[ts_data["hour_ts"].between(fetch_data_from, fetch_data_to)]
-
-# Sort and Reset
 ts_data = ts_data.sort_values(["start_station_id", "hour_ts"]).reset_index(drop=True)
 
 print(f"✅ Timeseries data shape after filtering: {ts_data.shape}")
 
-# 🛑 Early Exit if No Data
+# 🛑 Early Exit
 if ts_data.empty:
-    print("⚠️ No Citi Bike data available in Feature View for the selected period. Exiting.")
+    print("⚠️ No Citi Bike data available. Exiting.")
     sys.exit(0)
+
+# ==============================
+# 🛠 Feature Engineering
+# ==============================
+
+print("🛠 Creating manual features...")
+
+# Only add hour_sin and hour_cos
+ts_data["hour_sin"] = np.sin(2 * np.pi * ts_data["hour"] / 24)
+ts_data["hour_cos"] = np.cos(2 * np.pi * ts_data["hour"] / 24)
+
+# No need to create ride_count_roll3 manually - already there!
 
 # ==============================
 # 📦 Load Trained Model
@@ -69,29 +76,21 @@ print("✅ Model loaded successfully.")
 # ⚙️ Prepare Features for Prediction
 # ==============================
 
-print("🛠 Creating manual features...")
-
-# Manual time-based features
-ts_data["hour_sin"] = np.sin(2 * np.pi * ts_data["hour"] / 24)
-ts_data["hour_cos"] = np.cos(2 * np.pi * ts_data["hour"] / 24)
-
-# Drop non-feature columns
 non_feature_cols = ["hour_ts", "start_station_name", "time_of_day"]
-X = ts_data.drop(columns=non_feature_cols, errors="ignore")
 
-# Define trained feature columns (what the model expects)
 trained_features = [
     "hour", "hour_sin", "hour_cos", "day_of_week", "is_holiday_or_weekend",
     "month", "is_peak_hour", "day_of_year", "ride_count_roll3"
 ] + [f"ride_count_lag_{i}" for i in range(1, 679)] + ["target_ride_count"]
 
-# Fill missing features if any
+X = ts_data.drop(columns=non_feature_cols, errors="ignore")
+
+# Fill missing trained features if needed
 for col in trained_features:
     if col not in X.columns:
         print(f"⚠️ Missing column: {col}. Filling with 0.")
         X[col] = 0
 
-# Reorder features properly
 X = X[trained_features]
 
 print(f"✅ Final feature shape for prediction: {X.shape}")
@@ -100,7 +99,6 @@ print(f"✅ Final feature shape for prediction: {X.shape}")
 # 🔮 Predict Ride Counts
 # ==============================
 
-# Predict
 predictions = model.predict(X)
 
 # ==============================
@@ -109,11 +107,7 @@ predictions = model.predict(X)
 
 results = pd.DataFrame()
 results["start_station_id"] = ts_data["start_station_id"].values
-
-# ✅ Correct UTC ➔ EST timezone conversion
 results["hour_ts_est"] = pd.to_datetime(ts_data["hour_ts"]).dt.tz_convert('America/New_York')
-
-# Predicted ride counts
 results["predicted_ride_count"] = predictions
 
 print(f"✅ Predictions completed. Shape: {results.shape}")
@@ -127,3 +121,6 @@ top_5_locations = results.sort_values("predicted_ride_count", ascending=False).h
 print("\n🏆 Top 5 Stations by Predicted Demand:")
 print(top_5_locations[["start_station_id", "hour_ts_est", "predicted_ride_count"]])
 
+# Save top 5 predictions to CSV for reference
+top_5_locations.to_csv("top5_predictions.csv", index=False)
+print("\n💾 Top 5 predictions saved to top5_predictions.csv")
