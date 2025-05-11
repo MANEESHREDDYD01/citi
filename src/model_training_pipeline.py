@@ -18,7 +18,12 @@ from src.pipeline_util import get_pipeline
 # ==============================
 
 print("📦 Fetching Citi Bike data from feature store...")
-ts_data = fetch_days_data(180)  # Fetch last 180 days data
+feature_view = feature_store.get_feature_view(
+    name=config.FEATURE_VIEW_NAME,
+    version=config.FEATURE_VIEW_VERSION
+)
+
+ts_data = feature_view.get_batch_data()
 
 # ==============================
 # 🔄 Step 2: Transform into Features and Targets
@@ -26,9 +31,7 @@ ts_data = fetch_days_data(180)  # Fetch last 180 days data
 
 print("🔄 Transforming timeseries data into features and targets...")
 
-features, targets = transform_ts_data_into_features_and_targets_all_months(
-    ts_data, window_size=24 * 28, step_size=23
-)
+features, targets = transform_ts_data_into_features_and_targets_all_months()
 
 print(f"✅ Features shape: {features.shape}, Targets shape: {targets.shape}")
 
