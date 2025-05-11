@@ -31,6 +31,35 @@ feature_view = feature_store.get_feature_view(
 )
 
 ts_data = feature_view.get_batch_data()
+from src.citi_interface import get_feature_store
+import src.config as config
+
+# Connect to Feature Store
+feature_store = get_feature_store()
+
+# Load your Feature View
+feature_view = feature_store.get_feature_view(
+    name=config.FEATURE_VIEW_NAME,
+    version=config.FEATURE_VIEW_VERSION
+)
+
+# Fetch a small batch (1 day) to inspect schema
+import pandas as pd
+from datetime import datetime, timedelta
+
+start_time = pd.Timestamp.now(tz="UTC") - timedelta(days=1)
+end_time = pd.Timestamp.now(tz="UTC")
+
+print(f"Fetching Feature View data from {start_time} to {end_time}...")
+
+batch_data = feature_view.get_batch_data(
+    start_time=start_time,
+    end_time=end_time
+)
+
+# Print columns
+print("\n✅ Columns in Feature View:")
+print(list(batch_data.columns))
 
 # ==============================
 # 🔄 Step 2: Transform Timeseries Data
