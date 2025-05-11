@@ -43,21 +43,50 @@ body {
     animation: gradientBG 15s ease infinite;
 }
 
-/* Gradient keyframes */
+/* Gradient Animation */
 @keyframes gradientBG {
     0% {background-position:0% 50%}
     50% {background-position:100% 50%}
     100% {background-position:0% 50%}
 }
 
-/* Hide extra elements */
+/* Hide MainMenu, Footer, Header */
 #MainMenu, footer, header {
     visibility: hidden;
 }
 
-/* Custom Cursor */
-* {
-    cursor: url('https://cdn-icons-png.flaticon.com/512/3069/3069170.png'), auto;
+/* On-Scroll Animation */
+.scroll-reveal {
+    opacity: 0;
+    transform: translateY(50px);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+}
+.scroll-reveal.revealed {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Hide Default Cursor */
+body {
+    cursor: none;
+}
+
+/* Custom Bike Cursor */
+.bike-cursor {
+    position: fixed;
+    width: 40px;
+    height: 40px;
+    background-image: url('https://cdn-icons-png.flaticon.com/512/3068/3068252.png');
+    background-size: cover;
+    pointer-events: none;
+    animation: bounce 1s infinite alternate;
+    z-index: 10000;
+}
+
+/* Bounce Animation */
+@keyframes bounce {
+    from { transform: translateY(0px); }
+    to { transform: translateY(-10px); }
 }
 
 /* Loader Styling */
@@ -97,16 +126,45 @@ body {
   <div class="bike">🚲</div>
 </div>
 
+<!-- Bike Cursor -->
+<div class="bike-cursor" id="bikeCursor"></div>
+
 <script>
-// Hide loader when page fully loaded
+// Hide loader after loading
 window.addEventListener('load', () => {
     setTimeout(() => {
-        document.getElementById('loader').style.display = 'none';
-    }, 1500); // slight delay to finish animation nicely
+        const loader = document.getElementById('loader');
+        if (loader) {
+            loader.remove();
+        }
+    }, 1500);
 });
+
+// Move bike cursor with mouse
+document.addEventListener('mousemove', function(e) {
+    const cursor = document.getElementById('bikeCursor');
+    cursor.style.left = e.pageX + 'px';
+    cursor.style.top = e.pageY + 'px';
+});
+
+// Scroll reveal animations
+const revealElements = () => {
+    const elements = document.querySelectorAll('.scroll-reveal');
+    const windowHeight = window.innerHeight;
+    elements.forEach(el => {
+        const top = el.getBoundingClientRect().top;
+        if (top < windowHeight - 100) {
+            el.classList.add('revealed');
+        }
+    });
+};
+
+window.addEventListener('scroll', revealElements);
+window.addEventListener('load', revealElements);
 </script>
 """
 
+# Inject all the customizations
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # =============================
@@ -127,6 +185,7 @@ df["prediction_error"] = abs(df["target_ride_count"] - df["ride_count_roll3"])
 
 # 1. 📈 MAE Over Time
 with st.container():
+    st.markdown('<div class="scroll-reveal">', unsafe_allow_html=True)
     st.subheader("📈 MAE Over Time")
     mae_time = df.groupby("hour_ts")["prediction_error"].mean().reset_index()
     chart_mae_time = alt.Chart(mae_time).mark_line().encode(
@@ -134,9 +193,11 @@ with st.container():
     ).properties(height=400)
     st.altair_chart(chart_mae_time, use_container_width=True)
     st.caption(f"🕒 Last data update: **{mae_time['hour_ts'].max()}**")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 2. 🏆 Top Stations Leaderboard
 with st.container():
+    st.markdown('<div class="scroll-reveal">', unsafe_allow_html=True)
     st.subheader("🏆 Top Stations with Lowest MAE")
     top_n = st.slider("Select Top N Stations", 1, 5, 3)
     top_stations = (df.groupby(["start_station_id", "start_station_name"])
@@ -144,9 +205,11 @@ with st.container():
                       .reset_index()
                       .sort_values("avg_mae"))
     st.dataframe(top_stations.head(top_n), hide_index=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 3. 🗺️ NYC Map of Best Stations
 with st.container():
+    st.markdown('<div class="scroll-reveal">', unsafe_allow_html=True)
     st.subheader("🗺️ Best Stations on Map (Demo Locations)")
     np.random.seed(42)
     map_data = top_stations.head(top_n).copy()
@@ -165,27 +228,33 @@ with st.container():
     r = pdk.Deck(layers=[layer], initial_view_state=view_state,
                  tooltip={"text": "Station: {start_station_name}\nMAE: {avg_mae:.2f}"})
     st.pydeck_chart(r)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 4. 📅 MAE by Day of Week
 with st.container():
+    st.markdown('<div class="scroll-reveal">', unsafe_allow_html=True)
     st.subheader("📅 MAE by Day of Week")
     day_mae = df.groupby("day_of_week")["prediction_error"].mean().reset_index()
     chart_day = alt.Chart(day_mae).mark_bar().encode(
         x="day_of_week:O", y="prediction_error:Q", color="day_of_week:N"
     )
     st.altair_chart(chart_day, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 5. 📆 MAE by Month
 with st.container():
+    st.markdown('<div class="scroll-reveal">', unsafe_allow_html=True)
     st.subheader("📆 MAE by Month")
     month_mae = df.groupby("month")["prediction_error"].mean().reset_index()
     chart_month = alt.Chart(month_mae).mark_bar(color="orange").encode(
         x="month:O", y="prediction_error:Q"
     )
     st.altair_chart(chart_month, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 6. 🏖 MAE on Holidays vs Weekdays
 with st.container():
+    st.markdown('<div class="scroll-reveal">', unsafe_allow_html=True)
     st.subheader("🏖 Holidays vs Weekdays MAE")
     holiday_mae = df.groupby("is_holiday_or_weekend")["prediction_error"].mean().reset_index()
     holiday_mae["type"] = holiday_mae["is_holiday_or_weekend"].map({True: "Holiday/Weekend", False: "Weekday"})
@@ -193,12 +262,15 @@ with st.container():
         x="type:N", y="prediction_error:Q", color="type:N"
     )
     st.altair_chart(chart_holiday, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # 7. 🕰️ MAE by Time of Day
 with st.container():
+    st.markdown('<div class="scroll-reveal">', unsafe_allow_html=True)
     st.subheader("🕰️ MAE by Time of Day")
     timeofday_mae = df.groupby("time_of_day")["prediction_error"].mean().reset_index()
     chart_timeofday = alt.Chart(timeofday_mae).mark_bar(color="purple").encode(
         x="time_of_day:O", y="prediction_error:Q"
     )
     st.altair_chart(chart_timeofday, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
