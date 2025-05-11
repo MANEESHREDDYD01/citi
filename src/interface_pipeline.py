@@ -52,11 +52,7 @@ print(f"✅ Time series data shape after filtering: {ts_data.shape}")
 
 # (If you have a real transform_ts_data_info_features function, use it)
 # For now directly use Citi function
-features, _ = transform_ts_data_into_features_and_targets_all_months(
-    ts_data,
-    window_size=24*28,
-    step_size=23
-)
+features, _ = transform_ts_data_into_features_and_targets_all_months()
 
 print(f"✅ Features created: {features.shape}")
 
