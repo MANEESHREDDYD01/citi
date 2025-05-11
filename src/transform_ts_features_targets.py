@@ -1,4 +1,4 @@
-# src/transform_ts_features_targets.py (UPDATED FINAL)
+# src/transform_ts_features_targets.py (FINAL FOR HOPSWORKS DATA)
 
 import pandas as pd
 from pathlib import Path
@@ -10,23 +10,6 @@ from pathlib import Path
 def transform_ts_data_into_features_and_targets_all_months(
     input_dir="../data/processed/final_features"
 ):
-    """
-    Load the processed CitiBike full-year datasets (2024 + 2025),
-    and return combined features and targets for model training.
-
-    Parameters:
-    -----------
-    input_dir : str
-        Directory where final feature files are stored.
-
-    Returns:
-    --------
-    features : pd.DataFrame
-        DataFrame containing input features for model training.
-    targets : pd.Series
-        Series containing target values (ride_count 8 hours ahead).
-    """
-
     input_path = Path(input_dir)
 
     path_2024 = input_path / "rides_citibike_final_2024_with_lags.parquet"
@@ -52,12 +35,10 @@ def transform_ts_data_into_features_and_targets_all_months(
         print(f"❌ Target column '{target_col}' not found!")
         return None, None
 
-    # Separate features and target
     features = df.drop(columns=[target_col])
     targets = df[target_col]
 
     print(f"✅ Features shape: {features.shape}, Targets shape: {targets.shape}")
-
     return features, targets
 
 # ==========================================
@@ -66,36 +47,30 @@ def transform_ts_data_into_features_and_targets_all_months(
 
 def transform_ts_data_into_features_and_targets(ts_data):
     """
-    Create features and targets dynamically from given CitiBike timeseries data.
-
-    Used for inference pipelines (e.g., interface_pipeline.py).
+    Create features and targets dynamically from Hopsworks Feature View data.
     """
 
     if ts_data.empty:
         print("⚠️ No data provided for feature creation. Returning None.")
         return None, None
 
-    # Copy
     ts_data = ts_data.copy()
 
-    # Create manual temporal features
+    # Manual temporal features (these are safe because hour_ts exists)
     ts_data["hour"] = ts_data["hour_ts"].dt.hour
     ts_data["day_of_week"] = ts_data["hour_ts"].dt.dayofweek
     ts_data["month"] = ts_data["hour_ts"].dt.month
 
-    # Rolling feature
-    ts_data["ride_count_roll3"] = ts_data["ride_count"].shift(1).rolling(3, min_periods=1).mean()
+    # No need to create ride_count_roll3 here — it already exists in Hopsworks!!
 
-    # Target feature (8 hours ahead ride_count)
-    ts_data["target_ride_count"] = ts_data["ride_count"].shift(-8)
+    if "target_ride_count" not in ts_data.columns:
+        print("❌ target_ride_count column missing!")
+        return None, None
 
-    # Drop rows with missing features/target
-    ts_data = ts_data.dropna(subset=["ride_count_roll3", "target_ride_count"])
-
-    # Final feature columns
+    # Final feature columns (safe columns that exist)
     feature_columns = [
         "start_station_id", "hour", "day_of_week", "month", "ride_count_roll3"
-    ]
+    ] + [col for col in ts_data.columns if col.startswith("ride_count_lag_")]
 
     features = ts_data[feature_columns]
     targets = ts_data["target_ride_count"]
