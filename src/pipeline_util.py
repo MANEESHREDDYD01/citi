@@ -1,7 +1,8 @@
-# src/pipeline_util.py (FOR CITI BIKE PROJECT)
+# src/pipeline_util.py (FOR CITI BIKE PROJECT - Updated)
 
 import lightgbm as lgb
 import pandas as pd
+import numpy as np
 from sklearn.pipeline import make_pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import FunctionTransformer
@@ -16,11 +17,17 @@ def manual_temporal_features(X: pd.DataFrame) -> pd.DataFrame:
     Assumes 'hour_ts' exists in X.
     """
     X = X.copy()
-    X["day"] = X["hour_ts"].dt.day
-    X["week_of_year"] = X["hour_ts"].dt.isocalendar().week
-    X["quarter"] = X["hour_ts"].dt.quarter
-    X["is_start_of_month"] = (X["hour_ts"].dt.is_month_start).astype(int)
-    X["is_end_of_month"] = (X["hour_ts"].dt.is_month_end).astype(int)
+
+    if "hour_ts" in X.columns:
+        if not np.issubdtype(X["hour_ts"].dtype, np.datetime64):
+            X["hour_ts"] = pd.to_datetime(X["hour_ts"], utc=True)
+
+        X["day"] = X["hour_ts"].dt.day
+        X["week_of_year"] = X["hour_ts"].dt.isocalendar().week
+        X["quarter"] = X["hour_ts"].dt.quarter
+        X["is_start_of_month"] = (X["hour_ts"].dt.is_month_start).astype(int)
+        X["is_end_of_month"] = (X["hour_ts"].dt.is_month_end).astype(int)
+
     return X
 
 # ✅ Wrap into FunctionTransformer
@@ -49,18 +56,22 @@ class DropColumnsTransformer(BaseEstimator, TransformerMixin):
 drop_unnecessary_columns = DropColumnsTransformer()
 
 # ==============================
-# 🚀 Final Citi Bike Pipeline
+# 🚀 Final Citi Bike Prediction Pipeline
 # ==============================
 
 def get_pipeline(**hyper_params):
     """
-    Returns a pipeline with manual feature engineering, column dropping,
-    and LightGBM regressor for Citi Bike ride prediction.
+    Returns a pipeline with:
+      - manual feature engineering
+      - column dropping
+      - LightGBM regressor
+    
+    for Citi Bike ride prediction.
 
     Parameters
     ----------
     **hyper_params : dict
-        Parameters to pass to the LGBMRegressor.
+        Parameters passed to the LGBMRegressor.
 
     Returns
     -------
