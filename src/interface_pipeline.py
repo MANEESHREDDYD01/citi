@@ -1,20 +1,19 @@
 # ============================
-# 🚴 Citi Bike Interface Pipeline
+# 🚴 Citi Bike Interface Pipeline (FINAL)
 # ============================
 
 # 📦 Imports
 import pandas as pd
-from datetime import datetime, timedelta
 import pytz
+from datetime import datetime
 
 import src.config as config
 from src.citi_interface import (
     get_hopsworks_project,
     get_feature_store,
-    get_feature_view,
     load_model_from_local,
-    get_model_predictions,
 )
+from src.utils import to_new_york  # ✅ you already had this
 from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets
 
 # ============================
@@ -29,24 +28,23 @@ fs = get_feature_store()
 # ============================
 current_time_utc = pd.Timestamp.now(tz="UTC")
 
-# For now, just fetch entire 2024–early 2025 data — or you can adjust window
 print(f"📅 Fetching Citi Bike data from 2025-01-01 to {current_time_utc}...")
 
 # ============================
-# 🛒 Fetch Time Series Data
+# 🛒 Fetch Raw Feature Group Data
 # ============================
-fv = get_feature_view(name="citibike_hourly_data_v2", version=1)
-
 try:
-    ts_data = fv.get_batch_data()
+    fg = fs.get_feature_group(name="citibike_hourly_data_v2", version=1)
+    query = fg.select_all()
+    ts_data = query.read()
 except Exception as e:
-    print(f"❌ Failed to fetch batch data: {e}")
+    print(f"❌ Failed to fetch Feature Group data: {e}")
     exit(1)
 
-print(f"✅ Timeseries data shape after filtering: {ts_data.shape}")
+print(f"✅ Timeseries data shape after fetching: {ts_data.shape}")
 
 if ts_data.shape[0] == 0:
-    print("⚠️ No recent Citi Bike data available in Feature View. Exiting gracefully.")
+    print("⚠️ No Citi Bike data available in Feature Group. Exiting gracefully.")
     exit(0)
 
 # ============================
@@ -66,7 +64,7 @@ print(f"✅ Feature shape for prediction: {features.shape}")
 # 🤖 Load Model
 # ============================
 model = load_model_from_local()
-print("✅ Loaded model successfully.")
+print("✅ Model loaded successfully.")
 
 # ============================
 # 🔮 Predict Ride Counts
@@ -98,4 +96,4 @@ top_predictions = results.sort_values(by="predicted_ride_count", ascending=False
 print("\n🏆 Top 10 Stations by Predicted Demand:")
 print(top_predictions)
 
-# (Optionally: Save results to Hopsworks or locally)
+# (Optional: Save back to Feature Group or storage if needed)
