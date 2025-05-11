@@ -15,7 +15,6 @@ from src.citi_interface import (
     get_hopsworks_project,
     load_metrics_from_registry,
     save_model_to_registry,
-    save_metrics_to_registry,
 )
 from src.transform_ts_features_targets import transform_ts_data_into_features_and_targets
 
@@ -48,7 +47,7 @@ batch_data = feature_view.get_batch_data(
     end_time=end_time
 )
 
-# Print columns
+# Print Feature View Columns
 print("\n✅ Columns in Feature View:")
 print(list(batch_data.columns))
 
@@ -135,9 +134,6 @@ if test_mae < metrics.get("test_mae", float("inf")):
     model.save(model_path)
 
     print(f"✅ Model registered successfully!")
-
-    # Save metrics separately
-    save_metrics_to_registry(model_name, {"test_mae": test_mae})
 
 else:
     print(f"⚠️ Skipping model registration. New model not better.")
