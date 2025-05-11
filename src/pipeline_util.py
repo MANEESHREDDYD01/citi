@@ -1,8 +1,7 @@
-# src/pipeline_util.py (FOR CITI BIKE PROJECT - Updated)
+# src/pipeline_util.py (FOR CITI BIKE PROJECT)
 
 import lightgbm as lgb
 import pandas as pd
-import numpy as np
 from sklearn.pipeline import make_pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import FunctionTransformer
@@ -19,7 +18,8 @@ def manual_temporal_features(X: pd.DataFrame) -> pd.DataFrame:
     X = X.copy()
 
     if "hour_ts" in X.columns:
-        if not np.issubdtype(X["hour_ts"].dtype, np.datetime64):
+        # ✅ Safe check for datetime type (works with timezone-aware datetime too)
+        if not pd.api.types.is_datetime64_any_dtype(X["hour_ts"]):
             X["hour_ts"] = pd.to_datetime(X["hour_ts"], utc=True)
 
         X["day"] = X["hour_ts"].dt.day
@@ -56,22 +56,18 @@ class DropColumnsTransformer(BaseEstimator, TransformerMixin):
 drop_unnecessary_columns = DropColumnsTransformer()
 
 # ==============================
-# 🚀 Final Citi Bike Prediction Pipeline
+# 🚀 Final Citi Bike Pipeline
 # ==============================
 
 def get_pipeline(**hyper_params):
     """
-    Returns a pipeline with:
-      - manual feature engineering
-      - column dropping
-      - LightGBM regressor
-    
-    for Citi Bike ride prediction.
+    Returns a pipeline with manual feature engineering, column dropping,
+    and LightGBM regressor for Citi Bike ride prediction.
 
     Parameters
     ----------
     **hyper_params : dict
-        Parameters passed to the LGBMRegressor.
+        Parameters to pass to the LGBMRegressor.
 
     Returns
     -------
